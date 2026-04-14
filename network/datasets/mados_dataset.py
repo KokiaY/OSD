@@ -1,0 +1,248 @@
+import os.path as osp
+
+import albumentations as albu
+import numpy as np
+import torch
+from PIL import Image
+from torch.utils.data import Dataset
+
+
+CLASSES = tuple(f"Class_{index}" for index in range(1, 16))
+PALETTE = [
+    [0, 0, 0],
+    [255, 0, 0],
+    [0, 255, 0],
+    [0, 0, 255],
+    [255, 255, 0],
+    [255, 0, 255],
+    [0, 255, 255],
+    [128, 0, 0],
+    [0, 128, 0],
+    [0, 0, 128],
+    [128, 128, 0],
+    [128, 0, 128],
+    [0, 128, 128],
+    [192, 192, 192],
+    [255, 165, 0],
+]
+
+IGNORE_INDEX = 255
+ORIGIN_IMG_SIZE = (240, 240)
+INPUT_IMG_SIZE = (256, 256)
+TEST_IMG_SIZE = (256, 256)
+IMAGENET_MEAN = np.array([0.485, 0.456, 0.406], dtype=np.float32)
+IMAGENET_STD = np.array([0.229, 0.224, 0.225], dtype=np.float32)
+RHORC_BANDS = ("492", "560", "665", "833")
+RHORC_BAND_ALIASES = {
+    "492": ("492",),
+    "559": ("559", "560"),
+    "560": ("560", "559"),
+    "665": ("665",),
+    "833": ("833",),
+}
+
+
+def normalize_rgb_image(img):
+    img = img.astype(np.float32) / 255.0
+    return (img - IMAGENET_MEAN) / IMAGENET_STD
+
+
+def normalize_multichannel_image(img):
+    img = np.nan_to_num(img.astype(np.float32), nan=0.0, posinf=0.0, neginf=0.0)
+    flat_img = img.reshape(-1, img.shape[-1])
+    mean = flat_img.mean(axis=0, keepdims=True)
+    std = flat_img.std(axis=0, keepdims=True)
+    std = np.where(std < 1e-6, 1.0, std)
+    return (img - mean.reshape(1, 1, -1)) / std.reshape(1, 1, -1)
+
+
+def build_spatial_transform(img_size=None, train=False, use_color_aug=False):
+    transforms = []
+    if img_size is not None:
+        transforms.append(albu.Resize(height=img_size[0], width=img_size[1]))
+    if train:
+        transforms.extend(
+            [
+                albu.HorizontalFlip(p=0.5),
+                albu.VerticalFlip(p=0.5),
+            ]
+        )
+        if use_color_aug:
+            transforms.append(
+                albu.RandomBrightnessContrast(
+                    brightness_limit=0.2,
+                    contrast_limit=0.2,
+                    p=0.25,
+                )
+            )
+    return albu.Compose(transforms) if transforms else None
+
+
+def apply_transform(img, mask, spatial_transform, normalize_fn):
+    img, mask = np.array(img), np.array(mask, dtype=np.uint8)
+    if spatial_transform is not None:
+        aug = spatial_transform(image=img.copy(), mask=mask.copy())
+        img, mask = aug["image"], aug["mask"]
+    img = normalize_fn(img)
+    return img, mask
+
+
+def train_aug(img, mask, img_size=INPUT_IMG_SIZE):
+    return apply_transform(
+        img,
+        mask,
+        build_spatial_transform(img_size=img_size, train=True, use_color_aug=True),
+        normalize_rgb_image,
+    )
+
+
+def val_aug(img, mask, img_size=TEST_IMG_SIZE):
+    return apply_transform(
+        img,
+        mask,
+        build_spatial_transform(img_size=img_size, train=False),
+        normalize_rgb_image,
+    )
+
+
+def test_aug(img, mask, img_size=TEST_IMG_SIZE):
+    return val_aug(img, mask, img_size=img_size)
+
+
+def train_aug_rhorc(img, mask, img_size=INPUT_IMG_SIZE):
+    return apply_transform(
+        img,
+        mask,
+        build_spatial_transform(img_size=img_size, train=True, use_color_aug=False),
+        normalize_multichannel_image,
+    )
+
+
+def val_aug_rhorc(img, mask, img_size=TEST_IMG_SIZE):
+    return apply_transform(
+        img,
+        mask,
+        build_spatial_transform(img_size=img_size, train=False),
+        normalize_multichannel_image,
+    )
+
+
+def test_aug_rhorc(img, mask, img_size=TEST_IMG_SIZE):
+    return val_aug_rhorc(img, mask, img_size=img_size)
+
+
+def train_aug_rhorc_native(img, mask):
+    return apply_transform(
+        img,
+        mask,
+        build_spatial_transform(img_size=None, train=True, use_color_aug=False),
+        normalize_multichannel_image,
+    )
+
+
+def val_aug_rhorc_native(img, mask):
+    return apply_transform(
+        img,
+        mask,
+        build_spatial_transform(img_size=None, train=False),
+        normalize_multichannel_image,
+    )
+
+
+def test_aug_rhorc_native(img, mask):
+    return val_aug_rhorc_native(img, mask)
+
+
+class MADOSDataset(Dataset):
+    def __init__(
+        self,
+        data_root="data/MADOS",
+        mode="train",
+        resolution="10",
+        img_suffix=".png",
+        mask_suffix=".tif",
+        img_tag="rgb",
+        mask_tag="cl",
+        transform=test_aug,
+        mosaic_ratio=0.0,
+        img_size=ORIGIN_IMG_SIZE,
+        ignore_index=IGNORE_INDEX,
+        rhorc_bands=RHORC_BANDS,
+    ):
+        self.data_root = data_root
+        self.mode = mode
+        self.resolution = str(resolution)
+        self.img_suffix = img_suffix
+        self.mask_suffix = mask_suffix
+        self.img_tag = img_tag
+        self.mask_tag = mask_tag
+        self.transform = transform
+        self.mosaic_ratio = mosaic_ratio
+        self.img_size = img_size
+        self.ignore_index = ignore_index
+        self.rhorc_bands = tuple(str(band) for band in rhorc_bands)
+        self.img_ids = self.get_img_ids()
+
+    def __getitem__(self, index):
+        img, mask = self.load_img_and_mask(index)
+        if self.transform:
+            img, mask = self.transform(img, mask)
+
+        img = torch.from_numpy(img).permute(2, 0, 1).float()
+        mask = torch.from_numpy(mask).long()
+        img_id = self.img_ids[index]
+        return dict(img_id=img_id, img=img, gt_semantic_seg=mask)
+
+    def __len__(self):
+        return len(self.img_ids)
+
+    def get_img_ids(self):
+        split_path = osp.join(self.data_root, "splits", f"{self.mode}_X.txt")
+        with open(split_path, "r", encoding="utf-8") as split_file:
+            img_ids = [line.strip() for line in split_file if line.strip()]
+        if not img_ids:
+            raise ValueError(f"No samples found in split file: {split_path}")
+        return img_ids
+
+    def build_sample_path(self, img_id, file_tag, file_suffix):
+        scene_name, crop_id = img_id.rsplit("_", 1)
+        file_name = f"{scene_name}_L2R_{file_tag}_{crop_id}{file_suffix}"
+        return osp.join(self.data_root, scene_name, self.resolution, file_name)
+
+    def build_rhorc_sample_path(self, img_id, band):
+        scene_name, crop_id = img_id.rsplit("_", 1)
+        file_name = f"{scene_name}_L2R_rhorc_{band}_{crop_id}.tif"
+        return osp.join(self.data_root, scene_name, self.resolution, file_name)
+
+    def load_img(self, img_id):
+        if self.img_tag == "rhorc":
+            band_images = []
+            for band in self.rhorc_bands:
+                band_path = None
+                for candidate_band in RHORC_BAND_ALIASES.get(str(band), (str(band),)):
+                    candidate_path = self.build_rhorc_sample_path(img_id, candidate_band)
+                    if osp.exists(candidate_path):
+                        band_path = candidate_path
+                        break
+                if band_path is None:
+                    raise FileNotFoundError(f"MADOS rhorc band not found for {img_id}: {band}")
+                band_image = np.array(Image.open(band_path), dtype=np.float32)
+                band_images.append(np.nan_to_num(band_image, nan=0.0, posinf=0.0, neginf=0.0))
+            return np.stack(band_images, axis=-1)
+
+        img_name = self.build_sample_path(img_id, self.img_tag, self.img_suffix)
+        if not osp.exists(img_name):
+            raise FileNotFoundError(f"MADOS image not found: {img_name}")
+        return np.array(Image.open(img_name).convert("RGB"), dtype=np.uint8)
+
+    def load_img_and_mask(self, index):
+        img_id = self.img_ids[index]
+        mask_name = self.build_sample_path(img_id, self.mask_tag, self.mask_suffix)
+
+        if not osp.exists(mask_name):
+            raise FileNotFoundError(f"MADOS mask not found: {mask_name}")
+
+        img = self.load_img(img_id)
+        mask = np.array(Image.open(mask_name), dtype=np.uint8)
+        mask = np.where(mask > 0, mask - 1, self.ignore_index).astype(np.uint8)
+        return img, mask
