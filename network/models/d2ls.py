@@ -31,24 +31,50 @@ import torchvision
 import torchvision.models as models
 
 
-def compute_contrastive_loss(x, eps=1e-6):
-    _, num_classes, _ = x.shape
+def compute_contrastive_loss(
+    x,
+    eps=1e-6,
+    prototypes_per_class=1,
+    prototype_diversity_weight=0.1,
+):
+    if prototypes_per_class > 1:
+        batch_size, total_tokens, dim = x.shape
+        if total_tokens % prototypes_per_class != 0:
+            raise ValueError(
+                "total token count must be divisible by prototypes_per_class."
+            )
+        num_classes = total_tokens // prototypes_per_class
+        prototype_tokens = x.view(batch_size, num_classes, prototypes_per_class, dim)
+        class_tokens = prototype_tokens.mean(dim=2)
+    else:
+        _, num_classes, _ = x.shape
+        class_tokens = x
+        prototype_tokens = None
 
-    class_means = torch.mean(x, dim=0) 
+    class_means = torch.mean(class_tokens, dim=0)
 
-    diff_intra = x - class_means.unsqueeze(0)  
-    squared_diff_intra = torch.sum(diff_intra**2, dim=2)  
+    diff_intra = class_tokens - class_means.unsqueeze(0)
+    squared_diff_intra = torch.sum(diff_intra**2, dim=2)
     intra_loss = torch.mean(squared_diff_intra)
 
-    diff_inter = class_means.unsqueeze(1) - class_means.unsqueeze(0) 
+    diff_inter = class_means.unsqueeze(1) - class_means.unsqueeze(0)
     squared_diff_inter = torch.sum(diff_inter**2, dim=2)
-
 
     triu_indices = torch.triu_indices(num_classes, num_classes, offset=1)
     inter_distances = squared_diff_inter[triu_indices[0], triu_indices[1]]
     inter_loss = torch.mean(inter_distances)
 
     loss = intra_loss / (inter_loss + eps)
+
+    if prototype_tokens is not None and prototypes_per_class > 1:
+        prototype_means = prototype_tokens.mean(dim=0)
+        proto_triu = torch.triu_indices(
+            prototypes_per_class, prototypes_per_class, offset=1
+        )
+        proto_diff = prototype_means.unsqueeze(2) - prototype_means.unsqueeze(1)
+        proto_dist = torch.sum(proto_diff**2, dim=-1)
+        prototype_diversity = proto_dist[:, proto_triu[0], proto_triu[1]].mean()
+        loss = loss + prototype_diversity_weight / (prototype_diversity + eps)
 
     return loss
 
@@ -94,14 +120,22 @@ class MLP(nn.Module):
 
 
 class DynamicQueryModule(nn.Module):
-    def __init__(self, transformer_dim, token_length, query_ratio):
+    def __init__(
+        self,
+        transformer_dim,
+        token_length,
+        query_ratio,
+        prototypes_per_class=1,
+    ):
         super().__init__()
         self.transformer_dim = transformer_dim
         self.token_length = token_length
         self.query_ratio = query_ratio
-        self.num_basic_queries = token_length * query_ratio
+        self.prototypes_per_class = prototypes_per_class
+        self.total_tokens = token_length * prototypes_per_class
+        self.num_basic_queries = self.total_tokens * query_ratio
 
-        self.basic_queries = nn.Embedding(token_length, transformer_dim)
+        self.basic_queries = nn.Embedding(self.total_tokens, transformer_dim)
 
         self.token_mlp = nn.Linear(transformer_dim, query_ratio * transformer_dim)
 
@@ -114,7 +148,7 @@ class DynamicQueryModule(nn.Module):
             basic_queries
         ) 
         query_embed = query_embed.view(
-            self.token_length * self.query_ratio, self.transformer_dim
+            self.total_tokens * self.query_ratio, self.transformer_dim
         )
 
         dynamic_queries = []
@@ -122,7 +156,7 @@ class DynamicQueryModule(nn.Module):
             weighted_queries = F.conv1d(
                 query_embed.unsqueeze(0),
                 query_weights[b].unsqueeze(-1),
-                groups=self.token_length,
+                groups=self.total_tokens,
             )
             dynamic_queries.append(weighted_queries)
 
@@ -138,12 +172,15 @@ class Modulator(nn.Module):
         transformer_dim,
         token_length,
         query_ratio,
+        prototypes_per_class=1,
         hidden_sizes=[128, 256, 512, 1024],
     ):
         super().__init__()
 
         self.token_length = token_length
         self.query_ratio = query_ratio
+        self.prototypes_per_class = prototypes_per_class
+        self.total_tokens = token_length * prototypes_per_class
 
         self.mlp1 = FeatureMLP(
             input_dim=hidden_sizes[-1], output_dim=transformer_dim
@@ -160,7 +197,7 @@ class Modulator(nn.Module):
         self.mlp2 = nn.Sequential(
             nn.Linear(transformer_dim, transformer_dim * 2),
             nn.ReLU(),
-            nn.Linear(transformer_dim * 2, token_length * query_ratio),
+            nn.Linear(transformer_dim * 2, self.total_tokens * query_ratio),
         )
 
     def forward(self, x: torch.Tensor):
@@ -185,7 +222,7 @@ class Modulator(nn.Module):
             flatten_channel_attention
         )
         fused_channel_attention = fused_channel_attention.view(
-            x.shape[0], self.token_length, self.query_ratio
+            x.shape[0], self.total_tokens, self.query_ratio
         )
         fused_channel_attention = F.softmax(
             fused_channel_attention, dim=-1
@@ -213,6 +250,9 @@ class Decoder(nn.Module):
         only_static=False,
         has_interactor=True,
         has_contrastive_loss=False,
+        prototypes_per_class=1,
+        prototype_temperature=1.0,
+        prototype_diversity_weight=0.1,
     ) -> None:
 
         super().__init__()
@@ -224,12 +264,23 @@ class Decoder(nn.Module):
         self.all_one = all_one
         self.all_zero = all_zero
         self.token_length = token_length
+        self.prototypes_per_class = prototypes_per_class
+        self.total_tokens = token_length * prototypes_per_class
+        self.prototype_temperature = prototype_temperature
+        self.prototype_diversity_weight = prototype_diversity_weight
         self.only_static = only_static
         self.token = DynamicQueryModule(
-            transformer_dim, token_length, query_ratio=query_ratio
+            transformer_dim,
+            token_length,
+            query_ratio=query_ratio,
+            prototypes_per_class=prototypes_per_class,
         )
         self.feature_modulator = Modulator(
-            transformer_dim, token_length, query_ratio, hidden_sizes=hidden_sizes
+            transformer_dim,
+            token_length,
+            query_ratio,
+            prototypes_per_class=prototypes_per_class,
+            hidden_sizes=hidden_sizes,
         )
         
         self.upsampler = nn.Sequential(
@@ -248,13 +299,29 @@ class Decoder(nn.Module):
             if has_conv:
                 if num_classes is None:
                     raise ValueError("num_classes must be provided when has_conv=True.")
-                self.output_head = nn.Linear(token_length, num_classes)
+                self.output_head = nn.Linear(self.total_tokens, num_classes)
             self.has_conv = has_conv
         else:
             self.output_head = nn.Conv2d(
                 transformer_dim // 16, num_classes, kernel_size=1
             )
         self.last_line = last_line
+
+    def aggregate_subprototypes(self, seg_output: torch.Tensor) -> torch.Tensor:
+        if self.prototypes_per_class == 1:
+            return seg_output
+        batch_size, total_tokens, height, width = seg_output.shape
+        if total_tokens != self.total_tokens:
+            raise ValueError("Unexpected token count for multi-prototype aggregation.")
+        seg_output = seg_output.view(
+            batch_size,
+            self.token_length,
+            self.prototypes_per_class,
+            height,
+            width,
+        )
+        temperature = max(self.prototype_temperature, 1e-6)
+        return torch.logsumexp(seg_output / temperature, dim=2) * temperature
 
     def inference(
         self,
@@ -291,6 +358,8 @@ class Decoder(nn.Module):
         seg_output = (hyper_in @ upscaled_embedding.view(b, c, h * w)).view(
             b, -1, h, w
         )  
+        if not self.has_conv:
+            seg_output = self.aggregate_subprototypes(seg_output)
         return seg_output
 
     def forward(
@@ -308,7 +377,7 @@ class Decoder(nn.Module):
             token = torch.ones(
                 size=(
                     image_embeddings.shape[0],
-                    self.token_length,
+                    self.total_tokens,
                     self.transformer_dim,
                 ),
                 requires_grad=False,
@@ -320,7 +389,7 @@ class Decoder(nn.Module):
             token = torch.zeros(
                 size=(
                     image_embeddings.shape[0],
-                    self.token_length,
+                    self.total_tokens,
                     self.transformer_dim,
                 ),
                 requires_grad=False,
@@ -339,7 +408,11 @@ class Decoder(nn.Module):
         dynamic_token, basci_token = self.token.forward(image_feature)
         contrastive_loss = None
         if self.has_contrastive_loss:
-            contrastive_loss = compute_contrastive_loss(dynamic_token)
+            contrastive_loss = compute_contrastive_loss(
+                dynamic_token,
+                prototypes_per_class=self.prototypes_per_class,
+                prototype_diversity_weight=self.prototype_diversity_weight,
+            )
         dynamic_output = self.inference(image_embeddings, image_pe, dynamic_token)
         if self.training and self.use_aux:
             basci_output = self.inference(image_embeddings, image_pe, basci_token)
@@ -613,6 +686,9 @@ class DynamicDictionaryLearning(nn.Module):
         has_aggregator=True,
         has_interactor=True,
         has_contrastive_loss=False,
+        prototypes_per_class=1,
+        prototype_temperature=1.0,
+        prototype_diversity_weight=0.1,
         froze_backbone=False,
         pretrained_backbone=True,
         input_channels=3,
@@ -687,6 +763,7 @@ class DynamicDictionaryLearning(nn.Module):
 
         embed_dim = 1024
         out_chans = embedding_dim
+        self.prototypes_per_class = prototypes_per_class
 
         self.pe_layer = PositionEmbeddingRandom(out_chans // 2)
 
@@ -742,6 +819,9 @@ class DynamicDictionaryLearning(nn.Module):
             only_static=only_static,
             has_interactor=has_interactor,
             has_contrastive_loss=has_contrastive_loss,
+            prototypes_per_class=prototypes_per_class,
+            prototype_temperature=prototype_temperature,
+            prototype_diversity_weight=prototype_diversity_weight,
         )
         self.aggregator = nn.Conv2d(
             decoder_hidden_size * num_encoder_blocks,
