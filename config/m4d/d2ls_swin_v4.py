@@ -9,8 +9,8 @@ from network.models.d2ls import DynamicDictionaryLearning
 
 max_epoch = 100
 ignore_index = 255
-train_batch_size = 2
-val_batch_size = 2
+train_batch_size = 4
+val_batch_size = 4
 lr = 1e-4
 weight_decay = 0.01
 backbone_lr = 0.001
