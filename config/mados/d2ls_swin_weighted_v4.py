@@ -1,16 +1,14 @@
-from functools import partial
-
 from torch.utils.data import DataLoader
 
+from network.datasets.mados_dataset import *
 from network.losses import *
-from network.datasets.m4d_dataset import *
 from network.models.d2ls import DynamicDictionaryLearning
 
 
 max_epoch = 100
-ignore_index = 255
-train_batch_size = 2
-val_batch_size = 2
+ignore_index = IGNORE_INDEX
+train_batch_size = 4
+val_batch_size = 4
 lr = 1e-4
 weight_decay = 0.01
 backbone_lr = 0.001
@@ -19,16 +17,16 @@ num_workers = 0
 num_classes = len(CLASSES)
 token_length = num_classes
 classes = CLASSES
-input_img_size = (512, 1024)
-test_img_size = (512, 1024)
+train_class_counts = [2912, 2051, 2898, 1192, 6655, 160471, 301366, 178914, 547, 101333, 79696, 11333, 7912, 1512, 8313]
+class_weights = [1.299804, 1.548784, 1.30294, 2.031588, 0.859804, 0.175096, 0.127769, 0.165826, 2.999025, 0.220342, 0.248459, 0.658872, 0.788552, 1.803839, 0.769298]
 prototypes_per_class = 2
 prototype_temperature = 1.0
 prototype_diversity_weight = 0.1
 
-weights_name = "d2ls_swinv2_base_v4_mpd"
-weights_path = "checkpoints/m4d/{}".format(weights_name)
+weights_name = "d2ls_swinv2_base_weighted_v4_mpd"
+weights_path = "checkpoints/mados/{}".format(weights_name)
 test_weights_name = weights_name
-log_name = "m4d/{}".format(weights_name)
+log_name = "mados/{}".format(weights_name)
 monitor = "val_mIoU"
 monitor_mode = "max"
 save_top_k = 1
@@ -51,31 +49,36 @@ net = DynamicDictionaryLearning(
     prototype_diversity_weight=prototype_diversity_weight,
 )
 
-loss = UnetFormerLoss(ignore_index=ignore_index)
+loss = UnetFormerLoss(ignore_index=ignore_index, class_weights=class_weights)
 
 use_aux_loss = True
 
-train_dataset = M4DDataset(
-    data_root="data/M4D",
+train_dataset = MADOSDataset(
+    data_root="data/MADOS",
     mode="train",
-    img_dir="images",
-    mask_dir="labels_1D",
-    transform=partial(train_aug, img_size=input_img_size),
+    resolution="10",
+    transform=train_aug,
     mosaic_ratio=0.0,
-    img_size=input_img_size,
+    img_size=INPUT_IMG_SIZE,
 )
 
-val_dataset = M4DDataset(
-    data_root="data/M4D",
+val_dataset = MADOSDataset(
+    data_root="data/MADOS",
+    mode="val",
+    resolution="10",
+    transform=val_aug,
+    mosaic_ratio=0.0,
+    img_size=TEST_IMG_SIZE,
+)
+
+test_dataset = MADOSDataset(
+    data_root="data/MADOS",
     mode="test",
-    img_dir="images",
-    mask_dir="labels_1D",
-    transform=partial(val_aug, img_size=test_img_size),
+    resolution="10",
+    transform=test_aug,
     mosaic_ratio=0.0,
-    img_size=test_img_size,
+    img_size=TEST_IMG_SIZE,
 )
-
-test_dataset = val_dataset
 
 train_loader = DataLoader(
     dataset=train_dataset,
@@ -96,6 +99,4 @@ val_loader = DataLoader(
 )
 
 optimizer = torch.optim.AdamW(net.parameters(), lr=lr, weight_decay=weight_decay)
-lr_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
-    optimizer, T_max=max_epoch, eta_min=1e-6
-)
+lr_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=max_epoch, eta_min=1e-6)
