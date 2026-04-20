@@ -5,7 +5,7 @@ from network.losses import *
 from network.models.d2ls import DynamicDictionaryLearning
 
 
-max_epoch = 100
+max_epoch = 90
 ignore_index = IGNORE_INDEX
 train_batch_size = 4
 val_batch_size = 4
