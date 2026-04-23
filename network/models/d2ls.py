@@ -31,10 +31,11 @@ import torchvision
 import torchvision.models as models
 
 
-def compute_contrastive_loss(
+def compute_prototype_regularization(
     x,
     eps=1e-6,
     prototypes_per_class=1,
+    prototype_cls_weight=1.0,
     prototype_diversity_weight=0.1,
 ):
     if prototypes_per_class > 1:
@@ -51,22 +52,27 @@ def compute_contrastive_loss(
         class_tokens = x
         prototype_tokens = None
 
-    class_means = torch.mean(class_tokens, dim=0)
+    loss = x.new_zeros(())
 
-    diff_intra = class_tokens - class_means.unsqueeze(0)
-    squared_diff_intra = torch.sum(diff_intra**2, dim=2)
-    intra_loss = torch.mean(squared_diff_intra)
+    if prototype_cls_weight > 0:
+        class_means = torch.mean(class_tokens, dim=0)
+        diff_intra = class_tokens - class_means.unsqueeze(0)
+        squared_diff_intra = torch.sum(diff_intra**2, dim=2)
+        intra_loss = torch.mean(squared_diff_intra)
 
-    diff_inter = class_means.unsqueeze(1) - class_means.unsqueeze(0)
-    squared_diff_inter = torch.sum(diff_inter**2, dim=2)
+        diff_inter = class_means.unsqueeze(1) - class_means.unsqueeze(0)
+        squared_diff_inter = torch.sum(diff_inter**2, dim=2)
 
-    triu_indices = torch.triu_indices(num_classes, num_classes, offset=1)
-    inter_distances = squared_diff_inter[triu_indices[0], triu_indices[1]]
-    inter_loss = torch.mean(inter_distances)
+        triu_indices = torch.triu_indices(num_classes, num_classes, offset=1)
+        inter_distances = squared_diff_inter[triu_indices[0], triu_indices[1]]
+        inter_loss = torch.mean(inter_distances)
+        loss = loss + prototype_cls_weight * (intra_loss / (inter_loss + eps))
 
-    loss = intra_loss / (inter_loss + eps)
-
-    if prototype_tokens is not None and prototypes_per_class > 1:
+    if (
+        prototype_tokens is not None
+        and prototypes_per_class > 1
+        and prototype_diversity_weight > 0
+    ):
         prototype_means = prototype_tokens.mean(dim=0)
         proto_triu = torch.triu_indices(
             prototypes_per_class, prototypes_per_class, offset=1
@@ -77,6 +83,22 @@ def compute_contrastive_loss(
         loss = loss + prototype_diversity_weight / (prototype_diversity + eps)
 
     return loss
+
+
+def compute_contrastive_loss(
+    x,
+    eps=1e-6,
+    prototypes_per_class=1,
+    prototype_cls_weight=1.0,
+    prototype_diversity_weight=0.1,
+):
+    return compute_prototype_regularization(
+        x,
+        eps=eps,
+        prototypes_per_class=prototypes_per_class,
+        prototype_cls_weight=prototype_cls_weight,
+        prototype_diversity_weight=prototype_diversity_weight,
+    )
 
 
 class LayerNorm2d(nn.Module):
@@ -251,7 +273,9 @@ class Decoder(nn.Module):
         has_interactor=True,
         has_contrastive_loss=False,
         prototypes_per_class=1,
+        prototype_aggregation="logsumexp",
         prototype_temperature=1.0,
+        prototype_cls_weight=1.0,
         prototype_diversity_weight=0.1,
     ) -> None:
 
@@ -266,7 +290,9 @@ class Decoder(nn.Module):
         self.token_length = token_length
         self.prototypes_per_class = prototypes_per_class
         self.total_tokens = token_length * prototypes_per_class
+        self.prototype_aggregation = prototype_aggregation
         self.prototype_temperature = prototype_temperature
+        self.prototype_cls_weight = prototype_cls_weight
         self.prototype_diversity_weight = prototype_diversity_weight
         self.only_static = only_static
         self.token = DynamicQueryModule(
@@ -320,6 +346,14 @@ class Decoder(nn.Module):
             height,
             width,
         )
+        if self.prototype_aggregation in ("mean", "avg", "average"):
+            return seg_output.mean(dim=2)
+        if self.prototype_aggregation == "max":
+            return seg_output.max(dim=2).values
+        if self.prototype_aggregation != "logsumexp":
+            raise ValueError(
+                f"Unsupported prototype aggregation: {self.prototype_aggregation}"
+            )
         temperature = max(self.prototype_temperature, 1e-6)
         return torch.logsumexp(seg_output / temperature, dim=2) * temperature
 
@@ -408,9 +442,10 @@ class Decoder(nn.Module):
         dynamic_token, basci_token = self.token.forward(image_feature)
         contrastive_loss = None
         if self.has_contrastive_loss:
-            contrastive_loss = compute_contrastive_loss(
+            contrastive_loss = compute_prototype_regularization(
                 dynamic_token,
                 prototypes_per_class=self.prototypes_per_class,
+                prototype_cls_weight=self.prototype_cls_weight,
                 prototype_diversity_weight=self.prototype_diversity_weight,
             )
         dynamic_output = self.inference(image_embeddings, image_pe, dynamic_token)
@@ -687,7 +722,9 @@ class DynamicDictionaryLearning(nn.Module):
         has_interactor=True,
         has_contrastive_loss=False,
         prototypes_per_class=1,
+        prototype_aggregation="logsumexp",
         prototype_temperature=1.0,
+        prototype_cls_weight=1.0,
         prototype_diversity_weight=0.1,
         froze_backbone=False,
         pretrained_backbone=True,
@@ -820,7 +857,9 @@ class DynamicDictionaryLearning(nn.Module):
             has_interactor=has_interactor,
             has_contrastive_loss=has_contrastive_loss,
             prototypes_per_class=prototypes_per_class,
+            prototype_aggregation=prototype_aggregation,
             prototype_temperature=prototype_temperature,
+            prototype_cls_weight=prototype_cls_weight,
             prototype_diversity_weight=prototype_diversity_weight,
         )
         self.aggregator = nn.Conv2d(

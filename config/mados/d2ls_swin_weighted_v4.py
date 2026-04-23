@@ -20,7 +20,9 @@ classes = CLASSES
 train_class_counts = [2912, 2051, 2898, 1192, 6655, 160471, 301366, 178914, 547, 101333, 79696, 11333, 7912, 1512, 8313]
 class_weights = [1.299804, 1.548784, 1.30294, 2.031588, 0.859804, 0.175096, 0.127769, 0.165826, 2.999025, 0.220342, 0.248459, 0.658872, 0.788552, 1.803839, 0.769298]
 prototypes_per_class = 2
+prototype_aggregation = "logsumexp"
 prototype_temperature = 1.0
+prototype_cls_weight = 1.0
 prototype_diversity_weight = 0.1
 
 weights_name = "d2ls_swinv2_base_weighted_v4_mpd"
@@ -45,7 +47,9 @@ net = DynamicDictionaryLearning(
     pretrained_backbone=True,
     has_contrastive_loss=has_contrastive_loss,
     prototypes_per_class=prototypes_per_class,
+    prototype_aggregation=prototype_aggregation,
     prototype_temperature=prototype_temperature,
+    prototype_cls_weight=prototype_cls_weight,
     prototype_diversity_weight=prototype_diversity_weight,
 )
 

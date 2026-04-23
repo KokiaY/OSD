@@ -22,7 +22,9 @@ classes = CLASSES
 input_img_size = INPUT_IMG_SIZE
 test_img_size = TEST_IMG_SIZE
 prototypes_per_class = 2
+prototype_aggregation = "logsumexp"
 prototype_temperature = 1.0
+prototype_cls_weight = 1.0
 prototype_diversity_weight = 0.1
 
 weights_name = "d2ls_swinv2_base_v4_mpd"
@@ -47,7 +49,9 @@ net = DynamicDictionaryLearning(
     pretrained_backbone=True,
     has_contrastive_loss=has_contrastive_loss,
     prototypes_per_class=prototypes_per_class,
+    prototype_aggregation=prototype_aggregation,
     prototype_temperature=prototype_temperature,
+    prototype_cls_weight=prototype_cls_weight,
     prototype_diversity_weight=prototype_diversity_weight,
 )
 
