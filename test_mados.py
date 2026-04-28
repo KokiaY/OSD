@@ -87,9 +87,23 @@ def label2rgb(mask, palette, ignore_index=255):
 
 def tensor_to_uint8_image(img_tensor):
     image = img_tensor.detach().cpu().numpy().transpose(1, 2, 0)
-    image = (image * IMAGENET_STD + IMAGENET_MEAN).clip(0.0, 1.0)
-    image = (image * 255.0).round().astype(np.uint8)
-    return image
+    if image.shape[-1] == 3:
+        image = (image * IMAGENET_STD + IMAGENET_MEAN).clip(0.0, 1.0)
+        return (image * 255.0).round().astype(np.uint8)
+
+    if image.shape[-1] == 4:
+        image = image[..., [2, 1, 0]]
+    elif image.shape[-1] >= 11:
+        image = image[..., [3, 2, 1]]
+    else:
+        image = image[..., :3]
+
+    image = np.nan_to_num(image.astype(np.float32), nan=0.0, posinf=0.0, neginf=0.0)
+    low = np.percentile(image, 2, axis=(0, 1), keepdims=True)
+    high = np.percentile(image, 98, axis=(0, 1), keepdims=True)
+    denom = np.where(high - low < 1e-6, 1.0, high - low)
+    image = ((image - low) / denom).clip(0.0, 1.0)
+    return (image * 255.0).round().astype(np.uint8)
 
 
 def blend_mask(image_rgb, mask_rgb, alpha=0.45):

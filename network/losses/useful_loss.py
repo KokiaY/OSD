@@ -88,6 +88,25 @@ class UnetFormerLoss(nn.Module):
 
 
 
+class WeightedCrossEntropyLoss(nn.Module):
+    def __init__(self, ignore_index=255, class_weights=None, aux_weight=0.4):
+        super().__init__()
+        if class_weights is not None:
+            class_weights = torch.as_tensor(class_weights, dtype=torch.float32)
+        self.criterion = nn.CrossEntropyLoss(
+            weight=class_weights,
+            ignore_index=ignore_index,
+        )
+        self.aux_weight = aux_weight
+
+    def forward(self, logits, labels):
+        if isinstance(logits, (tuple, list)):
+            if self.training and len(logits) == 2:
+                return self.criterion(logits[0], labels) + self.aux_weight * self.criterion(logits[1], labels)
+            logits = logits[0]
+        return self.criterion(logits, labels)
+
+
 from .dice import WeightedBoundaryDiceLoss
 
 class DeltaLoss(nn.Module):

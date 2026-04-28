@@ -1,5 +1,5 @@
 import pytorch_lightning as pl
-from pytorch_lightning.callbacks import ModelCheckpoint
+from pytorch_lightning.callbacks import Callback, ModelCheckpoint
 from tools.cfg import py2cfg
 import os
 import torch
@@ -99,6 +99,72 @@ def probe_trainer_kwargs(trainer_kwargs):
         fallback_kwargs["accelerator"] = "cpu"
         fallback_kwargs["devices"] = 1
         return fallback_kwargs
+
+
+class EMACallback(Callback):
+    def __init__(self, decay=0.999):
+        super().__init__()
+        self.decay = decay
+        self.shadow = {}
+        self.backup = {}
+        self.num_updates = 0
+
+    def _initialize(self, pl_module):
+        if self.shadow:
+            return
+        for name, parameter in pl_module.named_parameters():
+            if parameter.requires_grad:
+                self.shadow[name] = parameter.detach().clone()
+
+    def on_train_start(self, trainer, pl_module):
+        self._initialize(pl_module)
+
+    def on_train_batch_end(self, trainer, pl_module, outputs, batch, batch_idx):
+        self._initialize(pl_module)
+        self.num_updates += 1
+        decay = min(self.decay, (1 + self.num_updates) / (10 + self.num_updates))
+        with torch.no_grad():
+            for name, parameter in pl_module.named_parameters():
+                if name not in self.shadow:
+                    continue
+                self.shadow[name].mul_(decay).add_(parameter.detach(), alpha=1.0 - decay)
+
+    def _apply_shadow(self, pl_module):
+        if not self.shadow or self.backup:
+            return
+        with torch.no_grad():
+            for name, parameter in pl_module.named_parameters():
+                if name not in self.shadow:
+                    continue
+                self.backup[name] = parameter.detach().clone()
+                parameter.copy_(self.shadow[name].to(device=parameter.device, dtype=parameter.dtype))
+
+    def _restore(self, pl_module):
+        if not self.backup:
+            return
+        with torch.no_grad():
+            for name, parameter in pl_module.named_parameters():
+                if name in self.backup:
+                    parameter.copy_(self.backup[name].to(device=parameter.device, dtype=parameter.dtype))
+        self.backup = {}
+
+    def on_validation_start(self, trainer, pl_module):
+        self._apply_shadow(pl_module)
+
+    def on_validation_end(self, trainer, pl_module):
+        self._restore(pl_module)
+
+    def on_save_checkpoint(self, trainer, pl_module, checkpoint):
+        if not self.shadow:
+            return
+        state_dict = checkpoint.get("state_dict", {})
+        for name, shadow_parameter in self.shadow.items():
+            if name in state_dict:
+                state_dict[name] = shadow_parameter.to(
+                    device=state_dict[name].device,
+                    dtype=state_dict[name].dtype,
+                ).clone()
+
 
 class Supervision_Train(pl.LightningModule):
     def __init__(self, config):
@@ -273,7 +339,10 @@ def main():
 
     trainer_kwargs = get_trainer_kwargs(config)
     trainer_kwargs = probe_trainer_kwargs(trainer_kwargs)
-    trainer_kwargs["callbacks"] = [checkpoint_callback]
+    callbacks = [checkpoint_callback]
+    if getattr(config, "use_ema", False):
+        callbacks.append(EMACallback(decay=getattr(config, "ema_decay", 0.999)))
+    trainer_kwargs["callbacks"] = callbacks
     trainer_kwargs["logger"] = logger
     trainer = pl.Trainer(**trainer_kwargs)
     try:

@@ -877,6 +877,7 @@ class DynamicDictionaryLearning(nn.Module):
         if conv_layer.in_channels == self.input_channels:
             return conv_layer
 
+        original_weight = conv_layer.weight.detach()
         new_conv = nn.Conv2d(
             self.input_channels,
             conv_layer.out_channels,
@@ -891,14 +892,20 @@ class DynamicDictionaryLearning(nn.Module):
 
         with torch.no_grad():
             if self.input_channels == 1:
-                new_conv.weight.copy_(conv_layer.weight.mean(dim=1, keepdim=True))
+                new_conv.weight.copy_(original_weight.mean(dim=1, keepdim=True))
             elif self.input_channels < conv_layer.in_channels:
-                new_conv.weight.copy_(conv_layer.weight[:, : self.input_channels])
+                new_conv.weight.copy_(original_weight[:, : self.input_channels])
             else:
-                new_conv.weight[:, : conv_layer.in_channels].copy_(conv_layer.weight)
-                mean_weight = conv_layer.weight.mean(dim=1, keepdim=True)
+                new_conv.weight[:, : conv_layer.in_channels].copy_(original_weight)
+                mean_weight = original_weight.mean(dim=1, keepdim=True)
                 for channel_index in range(conv_layer.in_channels, self.input_channels):
                     new_conv.weight[:, channel_index : channel_index + 1].copy_(mean_weight)
+
+            original_norm = original_weight.flatten(1).norm(dim=1, keepdim=True)
+            adapted_norm = new_conv.weight.flatten(1).norm(dim=1, keepdim=True).clamp_min(1e-12)
+            norm_scale = (original_norm / adapted_norm).view(-1, 1, 1, 1)
+            new_conv.weight.mul_(norm_scale)
+
             if conv_layer.bias is not None:
                 new_conv.bias.copy_(conv_layer.bias)
 
