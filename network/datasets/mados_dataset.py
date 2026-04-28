@@ -33,12 +33,38 @@ TEST_IMG_SIZE = (256, 256)
 IMAGENET_MEAN = np.array([0.485, 0.456, 0.406], dtype=np.float32)
 IMAGENET_STD = np.array([0.229, 0.224, 0.225], dtype=np.float32)
 RHORC_BANDS = ("492", "560", "665", "833")
+MADOS_MULTISPECTRAL_BAND_SPECS = (
+    ("442", "60"),
+    ("492", "10"),
+    ("560", "10"),
+    ("665", "10"),
+    ("704", "20"),
+    ("740", "20"),
+    ("783", "20"),
+    ("833", "10"),
+    ("865", "20"),
+    ("1614", "20"),
+    ("2202", "20"),
+)
 RHORC_BAND_ALIASES = {
+    "442": ("442", "443"),
+    "443": ("443", "442"),
     "492": ("492",),
     "559": ("559", "560"),
     "560": ("560", "559"),
     "665": ("665",),
+    "704": ("704",),
+    "739": ("739", "740"),
+    "740": ("740", "739"),
+    "780": ("780", "783"),
+    "783": ("783", "780"),
     "833": ("833",),
+    "864": ("864", "865"),
+    "865": ("865", "864"),
+    "1610": ("1610", "1614"),
+    "1614": ("1614", "1610"),
+    "2186": ("2186", "2202"),
+    "2202": ("2202", "2186"),
 }
 
 
@@ -168,6 +194,7 @@ class MADOSDataset(Dataset):
         img_size=ORIGIN_IMG_SIZE,
         ignore_index=IGNORE_INDEX,
         rhorc_bands=RHORC_BANDS,
+        rhorc_band_specs=MADOS_MULTISPECTRAL_BAND_SPECS,
     ):
         self.data_root = data_root
         self.mode = mode
@@ -181,6 +208,9 @@ class MADOSDataset(Dataset):
         self.img_size = img_size
         self.ignore_index = ignore_index
         self.rhorc_bands = tuple(str(band) for band in rhorc_bands)
+        self.rhorc_band_specs = tuple(
+            (str(band), str(resolution)) for band, resolution in rhorc_band_specs
+        )
         self.img_ids = self.get_img_ids()
 
     def __getitem__(self, index):
@@ -209,26 +239,66 @@ class MADOSDataset(Dataset):
         file_name = f"{scene_name}_L2R_{file_tag}_{crop_id}{file_suffix}"
         return osp.join(self.data_root, scene_name, self.resolution, file_name)
 
-    def build_rhorc_sample_path(self, img_id, band):
+    def build_rhorc_sample_path(self, img_id, band, resolution=None):
         scene_name, crop_id = img_id.rsplit("_", 1)
         file_name = f"{scene_name}_L2R_rhorc_{band}_{crop_id}.tif"
-        return osp.join(self.data_root, scene_name, self.resolution, file_name)
+        resolution = self.resolution if resolution is None else str(resolution)
+        return osp.join(self.data_root, scene_name, resolution, file_name)
+
+    def resolve_rhorc_band_path(self, img_id, band, resolution=None):
+        for candidate_band in RHORC_BAND_ALIASES.get(str(band), (str(band),)):
+            candidate_path = self.build_rhorc_sample_path(
+                img_id, candidate_band, resolution=resolution
+            )
+            if osp.exists(candidate_path):
+                return candidate_path
+        raise FileNotFoundError(
+            f"MADOS rhorc band not found for {img_id}: band={band}, resolution={resolution or self.resolution}"
+        )
+
+    def load_rhorc_band(self, img_id, band, resolution=None, target_size=None):
+        band_path = self.resolve_rhorc_band_path(
+            img_id, band, resolution=resolution
+        )
+        band_image = Image.open(band_path)
+        if target_size is not None and band_image.size != target_size:
+            band_image = band_image.resize(target_size, Image.BILINEAR)
+        band_array = np.array(band_image, dtype=np.float32)
+        return np.nan_to_num(band_array, nan=0.0, posinf=0.0, neginf=0.0)
+
+    def load_multires_rhorc(self, img_id):
+        first_band, first_resolution = self.rhorc_band_specs[0]
+        first_path = self.resolve_rhorc_band_path(
+            img_id, first_band, resolution=first_resolution
+        )
+        with Image.open(first_path) as first_image:
+            target_size = first_image.size
+
+        ten_meter_mask = self.build_sample_path(img_id, self.mask_tag, self.mask_suffix)
+        if osp.exists(ten_meter_mask):
+            with Image.open(ten_meter_mask) as mask_image:
+                target_size = mask_image.size
+
+        band_images = [
+            self.load_rhorc_band(
+                img_id,
+                band,
+                resolution=band_resolution,
+                target_size=target_size,
+            )
+            for band, band_resolution in self.rhorc_band_specs
+        ]
+        return np.stack(band_images, axis=-1)
 
     def load_img(self, img_id):
         if self.img_tag == "rhorc":
             band_images = []
             for band in self.rhorc_bands:
-                band_path = None
-                for candidate_band in RHORC_BAND_ALIASES.get(str(band), (str(band),)):
-                    candidate_path = self.build_rhorc_sample_path(img_id, candidate_band)
-                    if osp.exists(candidate_path):
-                        band_path = candidate_path
-                        break
-                if band_path is None:
-                    raise FileNotFoundError(f"MADOS rhorc band not found for {img_id}: {band}")
-                band_image = np.array(Image.open(band_path), dtype=np.float32)
-                band_images.append(np.nan_to_num(band_image, nan=0.0, posinf=0.0, neginf=0.0))
+                band_images.append(self.load_rhorc_band(img_id, band))
             return np.stack(band_images, axis=-1)
+
+        if self.img_tag in ("rhorc_multires", "rhorc11", "multispectral"):
+            return self.load_multires_rhorc(img_id)
 
         img_name = self.build_sample_path(img_id, self.img_tag, self.img_suffix)
         if not osp.exists(img_name):

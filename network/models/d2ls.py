@@ -905,6 +905,9 @@ class DynamicDictionaryLearning(nn.Module):
         return new_conv
 
     def adapt_input_layer(self):
+        if self.model in ["swin_base", "swinv2_base", "swinv2_small", "swinv2_tiny"]:
+            self.backbone[0][0][0] = self.build_input_conv(self.backbone[0][0][0])
+            return
         if self.model in ["convnext_base", "convnext_small", "convnext_tiny"]:
             self.backbone[0][0][0] = self.build_input_conv(self.backbone[0][0][0])
             return
