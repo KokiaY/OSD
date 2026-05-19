@@ -141,6 +141,25 @@ class MLP(nn.Module):
         return x
 
 
+class SafePixelShuffle(nn.Module):
+    def __init__(self, upscale_factor: int):
+        super().__init__()
+        self.upscale_factor = upscale_factor
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        scale = self.upscale_factor
+        batch_size, channels, height, width = x.shape
+        scale_area = scale * scale
+        if channels % scale_area != 0:
+            raise ValueError(
+                f"Pixel shuffle requires channels divisible by {scale_area}, got {channels}."
+            )
+        out_channels = channels // scale_area
+        x = x.contiguous().view(batch_size, out_channels, scale, scale, height, width)
+        x = x.permute(0, 1, 4, 2, 5, 3).contiguous()
+        return x.view(batch_size, out_channels, height * scale, width * scale)
+
+
 class DynamicQueryModule(nn.Module):
     def __init__(
         self,
@@ -310,10 +329,10 @@ class Decoder(nn.Module):
         )
         
         self.upsampler = nn.Sequential(
-            nn.PixelShuffle(2),
+            SafePixelShuffle(2),
             LayerNorm2d(transformer_dim // 4),
             activation(),
-            nn.PixelShuffle(2),
+            SafePixelShuffle(2),
             activation(),
         )
 
