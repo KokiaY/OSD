@@ -159,11 +159,27 @@ class SafePixelShuffle(nn.Module):
         x = x.permute(0, 1, 4, 2, 5, 3).contiguous()
         return x.view(batch_size, out_channels, height * scale, width * scale)
 
+    def shuffle_by_slices(self, x: torch.Tensor) -> torch.Tensor:
+        scale = self.upscale_factor
+        batch_size, channels, height, width = x.shape
+        scale_area = scale * scale
+        if channels % scale_area != 0:
+            raise ValueError(
+                f"Pixel shuffle requires channels divisible by {scale_area}, got {channels}."
+            )
+        out_channels = channels // scale_area
+        grouped = x.contiguous().view(batch_size, out_channels, scale, scale, height, width)
+        out = x.new_empty(batch_size, out_channels, height * scale, width * scale)
+        for row in range(scale):
+            for col in range(scale):
+                out[:, :, row::scale, col::scale] = grouped[:, :, row, col]
+        return out
+
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         if x.is_cuda:
             major, _ = torch.cuda.get_device_capability(x.device)
             if major < 8:
-                return self.shuffle(x.cpu()).to(x.device)
+                return self.shuffle_by_slices(x)
         return self.shuffle(x)
 
 
