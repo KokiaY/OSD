@@ -146,7 +146,7 @@ class SafePixelShuffle(nn.Module):
         super().__init__()
         self.upscale_factor = upscale_factor
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+    def shuffle(self, x: torch.Tensor) -> torch.Tensor:
         scale = self.upscale_factor
         batch_size, channels, height, width = x.shape
         scale_area = scale * scale
@@ -158,6 +158,13 @@ class SafePixelShuffle(nn.Module):
         x = x.contiguous().view(batch_size, out_channels, scale, scale, height, width)
         x = x.permute(0, 1, 4, 2, 5, 3).contiguous()
         return x.view(batch_size, out_channels, height * scale, width * scale)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        if x.is_cuda:
+            major, _ = torch.cuda.get_device_capability(x.device)
+            if major < 8:
+                return self.shuffle(x.cpu()).to(x.device)
+        return self.shuffle(x)
 
 
 class DynamicQueryModule(nn.Module):
