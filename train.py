@@ -40,6 +40,8 @@ def get_trainer_kwargs(config):
         callbacks=[],
         logger=None,
         enable_progress_bar=getattr(config, "enable_progress_bar", True),
+        inference_mode=getattr(config, "inference_mode", False),
+        num_sanity_val_steps=getattr(config, "num_sanity_val_steps", 2),
     )
     accelerator = getattr(config, "accelerator", None)
     devices = getattr(config, "devices", None)
