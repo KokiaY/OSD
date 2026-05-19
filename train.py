@@ -39,6 +39,7 @@ def get_trainer_kwargs(config):
         check_val_every_n_epoch=config.check_val_every_n_epoch,
         callbacks=[],
         logger=None,
+        enable_progress_bar=getattr(config, "enable_progress_bar", True),
     )
     accelerator = getattr(config, "accelerator", None)
     devices = getattr(config, "devices", None)
@@ -60,6 +61,14 @@ def get_trainer_kwargs(config):
     strategy = getattr(config, "strategy", None)
     if strategy:
         trainer_kwargs["strategy"] = strategy
+
+    precision = getattr(config, "precision", None)
+    if precision:
+        trainer_kwargs["precision"] = precision
+
+    accumulate_grad_batches = getattr(config, "accumulate_grad_batches", None)
+    if accumulate_grad_batches:
+        trainer_kwargs["accumulate_grad_batches"] = accumulate_grad_batches
 
     return trainer_kwargs
 
@@ -193,6 +202,30 @@ class Supervision_Train(pl.LightningModule):
             return type(prediction)(self.align_prediction_to_mask(item, mask) for item in prediction)
         return prediction
 
+    def metric_indices(self):
+        if hasattr(self.config, "metric_include_indices"):
+            return list(self.config.metric_include_indices)
+        if hasattr(self.config, "metric_exclude_indices"):
+            excluded = set(self.config.metric_exclude_indices)
+            return [index for index in range(self.config.num_classes) if index not in excluded]
+        if any(name in self.config.log_name for name in ("vaihingen", "potsdam", "whubuilding", "massbuilding", "cropland")):
+            return list(range(self.config.num_classes - 1))
+        return list(range(self.config.num_classes))
+
+    def summarize_metrics(self, evaluator):
+        indices = self.metric_indices()
+        iou_per_class = evaluator.Intersection_over_Union()
+        f1_per_class = evaluator.F1()
+        mIoU = np.nanmean(iou_per_class[indices])
+        F1 = np.nanmean(f1_per_class[indices])
+
+        confusion = evaluator.confusion_matrix
+        support = confusion.sum(axis=1)
+        tp = np.diag(confusion)
+        denominator = support[indices].sum() + evaluator.eps
+        OA = tp[indices].sum() / denominator
+        return mIoU, F1, OA, iou_per_class
+
     def training_step(self, batch, batch_idx):
         img, mask = batch['img'], batch['gt_semantic_seg']
         loss = 0
@@ -219,27 +252,7 @@ class Supervision_Train(pl.LightningModule):
     def on_train_epoch_end(self):
         epoch_index = self.current_epoch + 1
         max_epochs = getattr(self.config, "max_epoch", "?")
-        if 'vaihingen' in self.config.log_name:
-            mIoU = np.nanmean(self.metrics_train.Intersection_over_Union()[:-1])
-            F1 = np.nanmean(self.metrics_train.F1()[:-1])
-        elif 'potsdam' in self.config.log_name:
-            mIoU = np.nanmean(self.metrics_train.Intersection_over_Union()[:-1])
-            F1 = np.nanmean(self.metrics_train.F1()[:-1])
-        elif 'whubuilding' in self.config.log_name:
-            mIoU = np.nanmean(self.metrics_train.Intersection_over_Union()[:-1])
-            F1 = np.nanmean(self.metrics_train.F1()[:-1])
-        elif 'massbuilding' in self.config.log_name:
-            mIoU = np.nanmean(self.metrics_train.Intersection_over_Union()[:-1])
-            F1 = np.nanmean(self.metrics_train.F1()[:-1])
-        elif 'cropland' in self.config.log_name:
-            mIoU = np.nanmean(self.metrics_train.Intersection_over_Union()[:-1])
-            F1 = np.nanmean(self.metrics_train.F1()[:-1])
-        else:
-            mIoU = np.nanmean(self.metrics_train.Intersection_over_Union())
-            F1 = np.nanmean(self.metrics_train.F1())
-
-        OA = np.nanmean(self.metrics_train.OA())
-        iou_per_class = self.metrics_train.Intersection_over_Union()
+        mIoU, F1, OA, iou_per_class = self.summarize_metrics(self.metrics_train)
         eval_value = {'train_mIoU': mIoU,
                       'train_F1': F1,
                       'train_OA': OA}
@@ -268,27 +281,7 @@ class Supervision_Train(pl.LightningModule):
     def on_validation_epoch_end(self):
         epoch_index = self.current_epoch + 1
         max_epochs = getattr(self.config, "max_epoch", "?")
-        if 'vaihingen' in self.config.log_name:
-            mIoU = np.nanmean(self.metrics_val.Intersection_over_Union()[:-1])
-            F1 = np.nanmean(self.metrics_val.F1()[:-1])
-        elif 'potsdam' in self.config.log_name:
-            mIoU = np.nanmean(self.metrics_val.Intersection_over_Union()[:-1])
-            F1 = np.nanmean(self.metrics_val.F1()[:-1])
-        elif 'whubuilding' in self.config.log_name:
-            mIoU = np.nanmean(self.metrics_val.Intersection_over_Union()[:-1])
-            F1 = np.nanmean(self.metrics_val.F1()[:-1])
-        elif 'massbuilding' in self.config.log_name:
-            mIoU = np.nanmean(self.metrics_val.Intersection_over_Union()[:-1])
-            F1 = np.nanmean(self.metrics_val.F1()[:-1])
-        elif 'cropland' in self.config.log_name:
-            mIoU = np.nanmean(self.metrics_val.Intersection_over_Union()[:-1])
-            F1 = np.nanmean(self.metrics_val.F1()[:-1])
-        else:
-            mIoU = np.nanmean(self.metrics_val.Intersection_over_Union())
-            F1 = np.nanmean(self.metrics_val.F1())
-
-        OA = np.nanmean(self.metrics_val.OA())
-        iou_per_class = self.metrics_val.Intersection_over_Union()
+        mIoU, F1, OA, iou_per_class = self.summarize_metrics(self.metrics_val)
 
         eval_value = {'val_mIoU': mIoU,
                       'val_F1': F1,

@@ -3,14 +3,14 @@ from functools import partial
 from torch.utils.data import DataLoader
 
 from network.losses import *
-from network.datasets.uavrgb_dataset import *
+from network.datasets.uavrgb_dataset_4class import *
 from network.models.d2ls import DynamicDictionaryLearning
 
 
 max_epoch = 70
 ignore_index = IGNORE_INDEX
-train_batch_size = 4
-val_batch_size = 4
+train_batch_size = 2
+val_batch_size = 2
 lr = 1e-4
 weight_decay = 0.01
 backbone_lr = 0.001
@@ -27,7 +27,7 @@ prototype_temperature = 1.0
 prototype_cls_weight = 1.0
 prototype_diversity_weight = 0.1
 
-weights_name = "d2ls_swinv2_base_v4_mpd"
+weights_name = "d2ls_swinv2_base_v4_mpd_4cls_70e_bs2"
 weights_path = "checkpoints/uavrgb/{}".format(weights_name)
 test_weights_name = weights_name
 log_name = "uavrgb/{}".format(weights_name)
@@ -40,6 +40,7 @@ pretrained_ckpt_path = None
 gpus = [0]
 resume_ckpt_path = None
 strategy = None
+precision = "16-mixed"
 has_contrastive_loss = True
 
 net = DynamicDictionaryLearning(

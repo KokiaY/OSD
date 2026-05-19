@@ -55,7 +55,8 @@ def get_args():
     arg("-t", "--tta", default=None, choices=[None, "d4", "lr"], help="Test time augmentation")
     arg("--rgb", action="store_true", help="Whether output RGB masks")
     arg("--ckpt_path", type=Path, default=None, help="Checkpoint path, default uses config weights")
-    arg("-b", "--batch_size", type=int, default=4, help="Batch size for testing")
+    arg("-b", "--batch_size", type=int, default=2, help="Batch size for testing")
+    arg("--workers", type=int, default=1, help="Number of image writer processes")
     return parser.parse_args()
 
 
@@ -283,7 +284,13 @@ def main():
     save_metrics(args.output_path, summary, per_class)
 
     t0 = time.time()
-    mpp.Pool(processes=mp.cpu_count()).map(img_writer, results)
+    if args.workers <= 1:
+        for item in results:
+            img_writer(item)
+    else:
+        writer_workers = min(args.workers, mp.cpu_count())
+        with mpp.Pool(processes=writer_workers) as pool:
+            pool.map(img_writer, results)
     t1 = time.time()
     print("images writing spends: {} s".format(t1 - t0))
 

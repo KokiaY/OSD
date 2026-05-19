@@ -2,62 +2,48 @@ from functools import partial
 
 from torch.utils.data import DataLoader
 
+from network.datasets.uavrgb_dataset_4class import *
 from network.losses import *
-from network.datasets.uavrgb_dataset import *
-from network.models.d2ls import DynamicDictionaryLearning
+from network.models.baselines import HuggingFaceSegFormer
 
 
-max_epoch = 70
+max_epoch = 40
 ignore_index = IGNORE_INDEX
-train_batch_size = 4
-val_batch_size = 4
-lr = 1e-4
+train_batch_size = 2
+val_batch_size = 2
+lr = 6e-5
 weight_decay = 0.01
-backbone_lr = 0.001
-backbone_weight_decay = 0.01
 num_workers = 0
 num_classes = len(CLASSES)
-token_length = num_classes
 classes = CLASSES
 input_img_size = INPUT_IMG_SIZE
 test_img_size = TEST_IMG_SIZE
-prototypes_per_class = 2
-prototype_aggregation = "logsumexp"
-prototype_temperature = 1.0
-prototype_cls_weight = 1.0
-prototype_diversity_weight = 0.1
 
-weights_name = "d2ls_swinv2_base_v4_mpd"
+weights_name = "baseline_segformer_mitb3_4cls_40e_bs2"
 weights_path = "checkpoints/uavrgb/{}".format(weights_name)
 test_weights_name = weights_name
 log_name = "uavrgb/{}".format(weights_name)
 monitor = "val_mIoU"
 monitor_mode = "max"
-save_top_k = 5
+save_top_k = 1
 save_last = True
 check_val_every_n_epoch = 1
 pretrained_ckpt_path = None
 gpus = [0]
 resume_ckpt_path = None
 strategy = None
-has_contrastive_loss = True
+precision = "16-mixed"
+enable_progress_bar = False
+has_contrastive_loss = False
 
-net = DynamicDictionaryLearning(
-    model="swinv2_base",
-    token_length=token_length,
-    l=3,
-    pretrained_backbone=True,
-    has_contrastive_loss=has_contrastive_loss,
-    prototypes_per_class=prototypes_per_class,
-    prototype_aggregation=prototype_aggregation,
-    prototype_temperature=prototype_temperature,
-    prototype_cls_weight=prototype_cls_weight,
-    prototype_diversity_weight=prototype_diversity_weight,
+net = HuggingFaceSegFormer(
+    num_classes=num_classes,
+    model_name="nvidia/mit-b3",
+    pretrained=True,
+    local_files_only=True,
 )
-
 loss = UnetFormerLoss(ignore_index=ignore_index)
-
-use_aux_loss = True
+use_aux_loss = False
 
 train_dataset = UAVRGBDataset(
     data_root="data/UAVRGB",
@@ -102,4 +88,6 @@ val_loader = DataLoader(
 )
 
 optimizer = torch.optim.AdamW(net.parameters(), lr=lr, weight_decay=weight_decay)
-lr_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=max_epoch, eta_min=1e-6)
+lr_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+    optimizer, T_max=max_epoch, eta_min=1e-6
+)

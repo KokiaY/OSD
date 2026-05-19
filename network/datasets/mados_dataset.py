@@ -7,23 +7,39 @@ from PIL import Image
 from torch.utils.data import Dataset
 
 
-CLASSES = tuple(f"Class_{index}" for index in range(1, 16))
+CLASSES = (
+    "Marine Debris",
+    "Dense Sargassum",
+    "Sparse Floating Algae",
+    "Natural Organic Material",
+    "Ship",
+    "Oil Spill",
+    "Marine Water",
+    "Sediment-Laden Water",
+    "Foam",
+    "Turbid Water",
+    "Shallow Water",
+    "Waves & Wakes",
+    "Oil Platform",
+    "Jellyfish",
+    "Sea snot",
+)
 PALETTE = [
-    [0, 0, 0],
     [255, 0, 0],
-    [0, 255, 0],
-    [0, 0, 255],
-    [255, 255, 0],
-    [255, 0, 255],
-    [0, 255, 255],
-    [128, 0, 0],
     [0, 128, 0],
-    [0, 0, 128],
-    [128, 128, 0],
-    [128, 0, 128],
-    [0, 128, 128],
-    [192, 192, 192],
+    [50, 205, 50],
+    [165, 42, 42],
     [255, 165, 0],
+    [216, 191, 216],
+    [0, 0, 128],
+    [255, 215, 0],
+    [128, 0, 128],
+    [189, 183, 107],
+    [0, 206, 209],
+    [255, 228, 196],
+    [105, 105, 105],
+    [255, 105, 180],
+    [255, 255, 0],
 ]
 
 IGNORE_INDEX = 255
