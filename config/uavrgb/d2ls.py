@@ -17,6 +17,7 @@ backbone_weight_decay = 0.01
 num_classes = len(CLASSES) # 4
 token_length = num_classes 
 classes = CLASSES 
+metric_include_indices = (1, 2, 3)
 
 weights_name = "uavrgb_OSD_convnext_base"
 weights_path = "checkpoints/uavrgb/{}".format(weights_name)
