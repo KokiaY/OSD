@@ -23,8 +23,8 @@ PALETTE = [
 ]
 
 ORIGIN_IMG_SIZE = (1024, 1024)
-INPUT_IMG_SIZE = (1024, 1024)
-TEST_IMG_SIZE = (1024, 1024)
+INPUT_IMG_SIZE = (512, 960)
+TEST_IMG_SIZE = (512, 960)
 
 
 def get_training_transform():

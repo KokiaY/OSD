@@ -66,7 +66,7 @@ train_dataset = UAVRGBDataset(
     mode='train',
     mosaic_ratio=0.0,
     transform=train_aug,
-    img_size=(1024, 1024)
+    img_size=(512, 960)
 )
 
 val_dataset = UAVRGBDataset(
@@ -78,7 +78,7 @@ val_dataset = UAVRGBDataset(
     mode='test',
     mosaic_ratio=0.0,
     transform=val_aug,
-    img_size=(1024, 1024)
+    img_size=(512, 960)
 )
 
 # optional test dataset for external script use
@@ -94,7 +94,7 @@ test_dataset = UAVRGBTestDataset(
     mask_suffix='.png',
     mosaic_ratio=0.0,
     transform=test_aug,
-    img_size=(1024, 1024)
+    img_size=(512, 960)
 )
 
 
