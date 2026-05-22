@@ -8,7 +8,12 @@ from PIL import Image
 from torch.utils.data import Dataset
 
 
-CLASSES = ("Background", "Oil Spill", "Other", "Water")
+CLASSES = (
+    "background",
+    "oil",
+    "others",
+    "water",
+)
 PALETTE = [
     [0, 0, 0],
     [255, 0, 124],
