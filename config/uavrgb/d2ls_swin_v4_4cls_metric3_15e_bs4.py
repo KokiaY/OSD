@@ -24,13 +24,13 @@ metric_include_indices = (1, 2, 3)
 input_img_size = INPUT_IMG_SIZE
 test_img_size = TEST_IMG_SIZE
 
-prototypes_per_class = 2
+prototypes_per_class = 1
 prototype_aggregation = "logsumexp"
 prototype_temperature = 1.0
 prototype_cls_weight = 1.0
 prototype_diversity_weight = 0.1
 
-weights_name = "d2ls_swinv2_base_v4_mpd_4cls_metric3_15e_bs4"
+weights_name = "d2ls_swinv2_base_v4_mpd_4cls_metric3_legacy_15e_bs4"
 weights_path = "checkpoints/uavrgb/{}".format(weights_name)
 test_weights_name = weights_name
 log_name = "uavrgb/{}".format(weights_name)
@@ -63,7 +63,7 @@ net = DynamicDictionaryLearning(
     prototype_diversity_weight=prototype_diversity_weight,
 )
 
-loss = UnetFormerLoss(ignore_index=ignore_index)
+loss = DeltaLoss(ignore_index=ignore_index)
 
 use_aux_loss = True
 
