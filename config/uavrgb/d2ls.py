@@ -86,6 +86,17 @@ class UAVRGBTestDataset(UAVRGBDataset):
         super().__init__(data_root=data_root, mode='test', **kwargs)
 
 
+test_dataset = UAVRGBTestDataset(
+    img_dir='images',
+    mask_dir='masks',
+    img_suffix='.jpg',
+    mask_suffix='.png',
+    mosaic_ratio=0.0,
+    transform=test_aug,
+    img_size=(1024, 1024)
+)
+
+
 train_loader = DataLoader(dataset=train_dataset,
                           batch_size=train_batch_size,
                           num_workers=0,
