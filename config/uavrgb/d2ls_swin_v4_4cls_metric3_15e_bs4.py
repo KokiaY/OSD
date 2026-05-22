@@ -7,7 +7,7 @@ from network.datasets.uavrgb_dataset_4class import *
 from network.models.d2ls import DynamicDictionaryLearning
 
 
-max_epoch = 15
+max_epoch = 30
 ignore_index = IGNORE_INDEX
 train_batch_size = 4
 val_batch_size = 4
@@ -24,19 +24,19 @@ metric_include_indices = (1, 2, 3)
 input_img_size = INPUT_IMG_SIZE
 test_img_size = TEST_IMG_SIZE
 
-prototypes_per_class = 1
+prototypes_per_class = 2
 prototype_aggregation = "logsumexp"
 prototype_temperature = 1.0
 prototype_cls_weight = 1.0
 prototype_diversity_weight = 0.1
 
-weights_name = "d2ls_swinv2_base_v4_mpd_4cls_metric3_legacy_15e_bs4"
+weights_name = "d2ls_swinv2_base_v4_mpd_4cls_metric3_proto2_15e_bs4"
 weights_path = "checkpoints/uavrgb/{}".format(weights_name)
 test_weights_name = weights_name
 log_name = "uavrgb/{}".format(weights_name)
 monitor = "val_mIoU"
 monitor_mode = "max"
-save_top_k = 5
+save_top_k = 1
 save_last = True
 check_val_every_n_epoch = 1
 pretrained_ckpt_path = None
