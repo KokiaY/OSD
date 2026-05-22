@@ -7,7 +7,7 @@ from network.datasets.uavrgb_dataset import *
 from network.models.d2ls import DynamicDictionaryLearning
 
 
-max_epoch = 70
+max_epoch = 40
 ignore_index = IGNORE_INDEX
 train_batch_size = 4
 val_batch_size = 4
