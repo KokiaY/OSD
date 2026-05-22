@@ -19,8 +19,8 @@ num_workers = 8
 
 num_classes = len(CLASSES)
 token_length = num_classes
-classes = CLASSES
-metric_exclude_indices = (0,)
+classes = ("background", "oil", "others", "water")
+metric_include_indices = (1, 2, 3)
 input_img_size = INPUT_IMG_SIZE
 test_img_size = TEST_IMG_SIZE
 
@@ -45,6 +45,8 @@ resume_ckpt_path = None
 strategy = None
 precision = "16-mixed"
 has_contrastive_loss = True
+contrastive_lambda = 0.1
+contrastive_loss_weight = contrastive_lambda
 
 net = DynamicDictionaryLearning(
     model="swinv2_base",
@@ -52,6 +54,8 @@ net = DynamicDictionaryLearning(
     l=3,
     pretrained_backbone=True,
     has_contrastive_loss=has_contrastive_loss,
+    has_aggregator=False,
+    only_static=False,
     prototypes_per_class=prototypes_per_class,
     prototype_aggregation=prototype_aggregation,
     prototype_temperature=prototype_temperature,
