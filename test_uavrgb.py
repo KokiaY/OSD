@@ -124,15 +124,6 @@ def resize_mask(mask, target_shape, ignore_index=255):
     return resized
 
 
-def apply_gt_ignore_to_prediction(pred_mask, gt_mask, ignore_index=255):
-    if gt_mask is None:
-        return pred_mask
-    gt_mask = resize_mask(gt_mask, pred_mask.shape, ignore_index=ignore_index)
-    pred_mask = pred_mask.copy()
-    pred_mask[gt_mask == ignore_index] = ignore_index
-    return pred_mask
-
-
 def add_title(image, title):
     canvas = np.full((image.shape[0] + 36, image.shape[1], 3), 255, dtype=np.uint8)
     canvas[36:] = image
@@ -153,8 +144,7 @@ def build_panel(image_rgb, pred_mask, gt_mask, palette, ignore_index):
         ]
     else:
         gt_mask = resize_mask(gt_mask, image_rgb.shape[:2], ignore_index=ignore_index)
-        pred_mask_vis = apply_gt_ignore_to_prediction(pred_mask, gt_mask, ignore_index=ignore_index)
-        pred_rgb = label2rgb(pred_mask_vis, palette, ignore_index=ignore_index)
+        pred_rgb = label2rgb(pred_mask, palette, ignore_index=ignore_index)
         pred_blend = blend_mask(image_rgb, pred_rgb)
         gt_rgb = label2rgb(gt_mask, palette, ignore_index=ignore_index)
         gt_blend = blend_mask(image_rgb, gt_rgb)
@@ -395,8 +385,7 @@ def save_prediction_outputs(
         cv2.imwrite(str(masks_dir / f"{image_id}.png"), pred_mask.astype(np.uint8))
 
     if save_rgb:
-        pred_mask_vis = apply_gt_ignore_to_prediction(pred_mask, gt_mask, ignore_index=ignore_index)
-        pred_rgb = label2rgb(pred_mask_vis, palette, ignore_index=ignore_index)
+        pred_rgb = label2rgb(pred_mask, palette, ignore_index=ignore_index)
         cv2.imwrite(str(rgb_dir / f"{image_id}.png"), cv2.cvtColor(pred_rgb, cv2.COLOR_RGB2BGR))
 
     if save_panel:
