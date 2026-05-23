@@ -7,7 +7,7 @@ from network.datasets.uavrgb_dataset_4class import *
 from network.models.d2ls import DynamicDictionaryLearning
 
 
-max_epoch = 30
+max_epoch = 15
 ignore_index = IGNORE_INDEX
 train_batch_size = 4
 val_batch_size = 4
@@ -30,7 +30,7 @@ prototype_temperature = 1.0
 prototype_cls_weight = 1.0
 prototype_diversity_weight = 0.1
 
-weights_name = "d2ls_swinv2_base_v4_mpd_4cls_metric3_proto2_15e_bs4"
+weights_name = "d2ls_swinv2_base_v4_mpd_4cls_metric3_proto2_stable_15e_bs4"
 weights_path = "checkpoints/uavrgb/{}".format(weights_name)
 test_weights_name = weights_name
 log_name = "uavrgb/{}".format(weights_name)
@@ -54,7 +54,7 @@ net = DynamicDictionaryLearning(
     l=3,
     pretrained_backbone=True,
     has_contrastive_loss=has_contrastive_loss,
-    has_aggregator=False,
+    has_aggregator=True,
     only_static=False,
     prototypes_per_class=prototypes_per_class,
     prototype_aggregation=prototype_aggregation,
@@ -63,7 +63,7 @@ net = DynamicDictionaryLearning(
     prototype_diversity_weight=prototype_diversity_weight,
 )
 
-loss = DeltaLoss(ignore_index=ignore_index)
+loss = UnetFormerLoss(ignore_index=ignore_index)
 
 use_aux_loss = True
 
