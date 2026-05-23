@@ -6,7 +6,7 @@ from network.models.d2ls import DynamicDictionaryLearning
 # Catalyst removed; using plain AdamW
 
 # training hparam
-max_epoch = 30  
+max_epoch = 40  
 ignore_index = 255
 train_batch_size = 2
 val_batch_size = 2
