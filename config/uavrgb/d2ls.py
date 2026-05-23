@@ -8,8 +8,8 @@ from network.models.d2ls import DynamicDictionaryLearning
 # training hparam
 max_epoch = 30  
 ignore_index = 255
-train_batch_size = 2
-val_batch_size = 2
+train_batch_size = 4
+val_batch_size = 4
 lr = 1e-4
 weight_decay = 0.01
 backbone_lr = 0.001
@@ -19,7 +19,7 @@ token_length = num_classes
 classes = CLASSES 
 metric_include_indices = (1, 2, 3)
 
-weights_name = "uavrgb_OSD_convnext_base"
+weights_name = "uavrgb_OSD_swinv2_base"
 weights_path = "checkpoints/uavrgb/{}".format(weights_name)
 test_weights_name = weights_name  # 指定使用的 ckpt文件（不含 .ckpt）
 # test_weights_name = "uavrgb_OSD_convnext_base-v1"
@@ -41,7 +41,7 @@ contrastive_loss_weight = contrastive_lambda
 
 # define the network
 net = DynamicDictionaryLearning(
-    model="convnext_base",
+    model="swinv2_base",
     token_length=token_length,
     l=3,             #Interactor 使用这个 l 来决定创建多少层 InteractorBlock  交互层数
     has_contrastive_loss=has_contrastive_loss,
