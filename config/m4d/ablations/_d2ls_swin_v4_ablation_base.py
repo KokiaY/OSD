@@ -29,7 +29,7 @@ def build_config(
         has_contrastive_loss = False
         use_aux_loss = False
 
-    max_epoch = 65
+    max_epoch = 40
     ignore_index = 255
     train_batch_size = 3
     val_batch_size = 3
