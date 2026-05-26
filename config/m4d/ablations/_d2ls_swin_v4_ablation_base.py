@@ -49,8 +49,8 @@ def build_config(
     log_name = "m4d/ablations/{}".format(weights_name)
     monitor = "val_mIoU"
     monitor_mode = "max"
-    save_top_k = 5
-    save_last = True
+    save_top_k = 1
+    save_last = False
     check_val_every_n_epoch = 1
     pretrained_ckpt_path = None
     gpus = [0]
