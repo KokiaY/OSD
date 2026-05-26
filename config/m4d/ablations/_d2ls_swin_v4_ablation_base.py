@@ -29,10 +29,10 @@ def build_config(
         has_contrastive_loss = False
         use_aux_loss = False
 
-    max_epoch = 50
+    max_epoch = 65
     ignore_index = 255
-    train_batch_size = 4
-    val_batch_size = 4
+    train_batch_size = 3
+    val_batch_size = 3
     lr = 1e-4
     weight_decay = 0.01
     backbone_lr = 0.001
