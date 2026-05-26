@@ -32,12 +32,24 @@ CONFIGS=(
 
 echo "Start M4D ablation training at $(date)"
 echo "Total runs: ${#CONFIGS[@]}"
+START_INDEX="${START_INDEX:-1}"
+if ! [[ "$START_INDEX" =~ ^[0-9]+$ ]] || (( START_INDEX < 1 || START_INDEX > ${#CONFIGS[@]} )); then
+  echo "Invalid START_INDEX=$START_INDEX. It must be between 1 and ${#CONFIGS[@]}."
+  exit 1
+fi
+echo "Start index: $START_INDEX"
 
-for CFG in "${CONFIGS[@]}"; do
+for INDEX in "${!CONFIGS[@]}"; do
+  RUN_INDEX=$((INDEX + 1))
+  if (( RUN_INDEX < START_INDEX )); then
+    echo "Skip [$RUN_INDEX/${#CONFIGS[@]}]: ${CONFIGS[$INDEX]}"
+    continue
+  fi
+  CFG="${CONFIGS[$INDEX]}"
   NAME="$(basename "$CFG" .py)"
   LOG_FILE="$LOG_DIR/${NAME}_$(date +%Y%m%d_%H%M%S).log"
   echo "============================================================"
-  echo "Training: $CFG"
+  echo "Training [$RUN_INDEX/${#CONFIGS[@]}]: $CFG"
   echo "Log: $LOG_FILE"
   echo "Start: $(date)"
   python train.py -c "$CFG" 2>&1 | tee "$LOG_FILE"
